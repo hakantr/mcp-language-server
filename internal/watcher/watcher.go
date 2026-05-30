@@ -50,6 +50,14 @@ func NewWorkspaceWatcherWithConfig(client LSPClient, config *WatcherConfig) *Wor
 	}
 }
 
+// RegisterHandlers connects server-to-client LSP registrations to this watcher.
+func (w *WorkspaceWatcher) RegisterHandlers(ctx context.Context, workspacePath string) {
+	w.workspacePath = workspacePath
+	lsp.RegisterFileWatchHandler(func(id string, watchers []protocol.FileSystemWatcher) {
+		w.AddRegistrations(ctx, id, watchers)
+	})
+}
+
 // AddRegistrations adds file watchers to track
 func (w *WorkspaceWatcher) AddRegistrations(ctx context.Context, id string, watchers []protocol.FileSystemWatcher) {
 	w.registrationMu.Lock()
@@ -111,13 +119,24 @@ func (w *WorkspaceWatcher) AddRegistrations(ctx context.Context, id string, watc
 		}
 	}
 
-	// Find and open all existing files that match the newly registered patterns
-	// TODO: not all language servers require this, but typescript does. Make this configurable
+	// Find and open all existing files that match the newly registered patterns.
+	// Some servers need this, but large workspaces such as Rust monorepos do not.
+	if !w.config.OpenMatchingFilesOnRegistration {
+		watcherLogger.Info("Skipping registration workspace scan because MCP_LSP_OPEN_MATCHING_FILES_ON_REGISTRATION is disabled")
+		return
+	}
+
 	go func() {
 		startTime := time.Now()
 		filesOpened := 0
 
 		err := filepath.WalkDir(w.workspacePath, func(path string, d os.DirEntry, err error) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			if err != nil {
 				return err
 			}
@@ -155,7 +174,7 @@ func (w *WorkspaceWatcher) AddRegistrations(ctx context.Context, id string, watc
 
 // WatchWorkspace sets up file watching for a workspace
 func (w *WorkspaceWatcher) WatchWorkspace(ctx context.Context, workspacePath string) {
-	w.workspacePath = workspacePath
+	w.RegisterHandlers(ctx, workspacePath)
 
 	// Initialize gitignore matcher
 	gitignore, err := NewGitignoreMatcher(workspacePath)
@@ -165,11 +184,6 @@ func (w *WorkspaceWatcher) WatchWorkspace(ctx context.Context, workspacePath str
 		w.gitignore = gitignore
 		watcherLogger.Info("Initialized gitignore matcher for %s", workspacePath)
 	}
-
-	// Register handler for file watcher registrations from the server
-	lsp.RegisterFileWatchHandler(func(id string, watchers []protocol.FileSystemWatcher) {
-		w.AddRegistrations(ctx, id, watchers)
-	})
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -220,7 +234,7 @@ func (w *WorkspaceWatcher) WatchWorkspace(ctx context.Context, workspacePath str
 				return
 			}
 
-			uri := fmt.Sprintf("file://%s", event.Name)
+			uri := string(protocol.URIFromPath(event.Name))
 
 			// Check if this is a file (not a directory) and should be excluded
 			isFile := false
@@ -381,19 +395,16 @@ func matchesSimpleGlob(pattern, path string) bool {
 			return isMatch
 		}
 
-		// Otherwise, try to check if the path ends with the rest part
-		isMatch := strings.HasSuffix(path, rest)
-
-		// If it matches directly, great!
-		if isMatch {
-			return true
+		// Match a specific file or directory suffix on a path boundary.
+		if !strings.ContainsAny(rest, "*?[") {
+			return path == rest || strings.HasSuffix(path, "/"+rest)
 		}
 
-		// Otherwise, check if any path component matches
+		// Otherwise, check if any path suffix matches the glob pattern.
 		pathComponents := strings.Split(path, "/")
 		for i := range pathComponents {
 			subPath := strings.Join(pathComponents[i:], "/")
-			if strings.HasSuffix(subPath, rest) {
+			if matched, err := filepath.Match(rest, subPath); err == nil && matched {
 				return true
 			}
 		}
@@ -463,20 +474,6 @@ func (w *WorkspaceWatcher) matchesPattern(path string, pattern protocol.GlobPatt
 		return true
 	}
 
-	// Special handling for wildcard patterns like "**/*.ext"
-	if strings.HasPrefix(patternText, "**/") {
-		if strings.HasPrefix(strings.TrimPrefix(patternText, "**/"), "*.") {
-			// Extension pattern like **/*.go
-			ext := strings.TrimPrefix(strings.TrimPrefix(patternText, "**/"), "*")
-			// watcherLogger.Debug("Using extension matching for **/*.ext pattern: checking if %s ends with %s", path, ext)
-			return strings.HasSuffix(path, ext)
-		} else {
-			// Any other pattern starting with **/ should match any path
-			// watcherLogger.Debug("Using path substring matching for **/ pattern")
-			return true
-		}
-	}
-
 	// For simple patterns without base path
 	if basePath == "" {
 		// Check if the pattern matches the full path or just the file extension
@@ -488,7 +485,14 @@ func (w *WorkspaceWatcher) matchesPattern(path string, pattern protocol.GlobPatt
 	}
 
 	// For relative patterns
-	basePath = strings.TrimPrefix(basePath, "file://")
+	if strings.HasPrefix(basePath, "file://") {
+		if uri, err := protocol.ParseDocumentUri(basePath); err == nil {
+			basePath = uri.Path()
+		} else {
+			watcherLogger.Error("Error parsing base URI %s: %v", basePath, err)
+			return false
+		}
+	}
 	basePath = filepath.ToSlash(basePath)
 
 	// Make path relative to basePath for matching
@@ -532,7 +536,7 @@ func (w *WorkspaceWatcher) debounceHandleFileEvent(ctx context.Context, uri stri
 // handleFileEvent sends file change notifications
 func (w *WorkspaceWatcher) handleFileEvent(ctx context.Context, uri string, changeType protocol.FileChangeType) {
 	// If the file is open and it's a change event, use didChange notification
-	filePath := uri[7:] // Remove "file://" prefix
+	filePath := protocol.DocumentUri(uri).Path()
 	if changeType == protocol.FileChangeType(protocol.Changed) && w.client.IsFileOpen(filePath) {
 		err := w.client.NotifyChange(ctx, filePath)
 		if err != nil {

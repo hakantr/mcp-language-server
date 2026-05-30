@@ -16,12 +16,13 @@ func GetCodeLens(ctx context.Context, client *lsp.Client, filePath string) (stri
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}
-	// TODO: find a more appropriate way to wait
-	time.Sleep(time.Second)
+	if err := waitForServerProcessing(ctx, time.Second); err != nil {
+		return "", err
+	}
 
 	// Create document identifier
 	docIdentifier := protocol.TextDocumentIdentifier{
-		URI: protocol.DocumentUri("file://" + filePath),
+		URI: protocol.URIFromPath(filePath),
 	}
 
 	// Request code lens from LSP

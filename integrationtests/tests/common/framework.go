@@ -163,6 +163,9 @@ func (ts *TestSuite) Setup() error {
 	ts.Client = client
 	ts.t.Logf("Started LSP: %s %v", ts.Config.Command, ts.Config.Args)
 
+	ts.Watcher = watcher.NewWorkspaceWatcher(client)
+	ts.Watcher.RegisterHandlers(ts.Context, workspaceDir)
+
 	// Initialize LSP and set up file watcher
 	initResult, err := client.InitializeLSPClient(ts.Context, workspaceDir)
 	if err != nil {
@@ -170,7 +173,6 @@ func (ts *TestSuite) Setup() error {
 	}
 	ts.t.Logf("LSP initialized with capabilities: %+v", initResult.Capabilities)
 
-	ts.Watcher = watcher.NewWorkspaceWatcher(client)
 	go ts.Watcher.WatchWorkspace(ts.Context, workspaceDir)
 
 	if err := client.WaitForServerReady(ts.Context); err != nil {

@@ -14,6 +14,13 @@ import (
 // RenameSymbol renames a symbol (variable, function, class, etc.) at the specified position
 // It uses the LSP rename functionality to handle all references across files
 func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line, column int, newName string) (string, error) {
+	if line < 1 {
+		return "", fmt.Errorf("line must be >= 1, got %d", line)
+	}
+	if column < 1 {
+		return "", fmt.Errorf("column must be >= 1, got %d", column)
+	}
+
 	// Open the file if not already open
 	err := client.OpenFile(ctx, filePath)
 	if err != nil {
@@ -21,7 +28,7 @@ func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line
 	}
 
 	// Convert 1-indexed line/column to 0-indexed for LSP protocol
-	uri := protocol.DocumentUri("file://" + filePath)
+	uri := protocol.URIFromPath(filePath)
 	position := protocol.Position{
 		Line:      uint32(line - 1),
 		Character: uint32(column - 1),

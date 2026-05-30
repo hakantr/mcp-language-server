@@ -2,6 +2,9 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
 
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
 	"github.com/isaacphi/mcp-language-server/internal/utilities"
@@ -21,7 +24,64 @@ func RegisterFileWatchHandler(handler FileWatchHandler) {
 // Requests
 
 func HandleWorkspaceConfiguration(params json.RawMessage) (any, error) {
-	return []map[string]any{{}}, nil
+	var configParams protocol.ConfigurationParams
+	if err := json.Unmarshal(params, &configParams); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal configuration params: %w", err)
+	}
+
+	configuration, err := configuredWorkspaceSettings()
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]any, len(configParams.Items))
+	for i, item := range configParams.Items {
+		if item.Section == "" {
+			results[i] = configuration
+			continue
+		}
+		if section, ok := lookupConfigurationSection(configuration, item.Section); ok {
+			results[i] = section
+			continue
+		}
+		results[i] = map[string]any{}
+	}
+
+	return results, nil
+}
+
+func configuredWorkspaceSettings() (map[string]any, error) {
+	raw := os.Getenv("MCP_LSP_CONFIGURATION")
+	if raw == "" {
+		return map[string]any{}, nil
+	}
+
+	var configuration map[string]any
+	if err := json.Unmarshal([]byte(raw), &configuration); err != nil {
+		return nil, fmt.Errorf("failed to parse MCP_LSP_CONFIGURATION: %w", err)
+	}
+	return configuration, nil
+}
+
+func lookupConfigurationSection(configuration map[string]any, section string) (any, bool) {
+	if value, ok := configuration[section]; ok {
+		return value, true
+	}
+
+	var current any = configuration
+	for _, part := range strings.Split(section, ".") {
+		currentMap, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+
+		current, ok = currentMap[part]
+		if !ok {
+			return nil, false
+		}
+	}
+
+	return current, true
 }
 
 func HandleRegisterCapability(params json.RawMessage) (any, error) {

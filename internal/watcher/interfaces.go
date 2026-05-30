@@ -2,6 +2,8 @@ package watcher
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
@@ -38,11 +40,15 @@ type WatcherConfig struct {
 
 	// MaxFileSize is the maximum size of a file to open
 	MaxFileSize int64
+
+	// OpenMatchingFilesOnRegistration controls whether existing files matching
+	// a server file-watch registration are opened immediately.
+	OpenMatchingFilesOnRegistration bool
 }
 
 // DefaultWatcherConfig returns a configuration with sensible defaults
 func DefaultWatcherConfig() *WatcherConfig {
-	return &WatcherConfig{
+	config := &WatcherConfig{
 		DebounceTime: 300 * time.Millisecond,
 		ExcludedDirs: map[string]bool{
 			".git":         true,
@@ -92,6 +98,18 @@ func DefaultWatcherConfig() *WatcherConfig {
 			".wav":  true,
 			".wasm": true,
 		},
-		MaxFileSize: 5 * 1024 * 1024, // 5MB
+		MaxFileSize:                     5 * 1024 * 1024, // 5MB
+		OpenMatchingFilesOnRegistration: true,
 	}
+
+	if value := os.Getenv("MCP_LSP_OPEN_MATCHING_FILES_ON_REGISTRATION"); value != "" {
+		switch strings.ToLower(value) {
+		case "0", "false", "no", "off":
+			config.OpenMatchingFilesOnRegistration = false
+		case "1", "true", "yes", "on":
+			config.OpenMatchingFilesOnRegistration = true
+		}
+	}
+
+	return config
 }

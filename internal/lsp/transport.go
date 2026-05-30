@@ -182,7 +182,11 @@ func (c *Client) handleMessages() {
 
 			if ok {
 				lspLogger.Debug("Sending response for ID %v to handler", msg.ID)
-				ch <- msg
+				select {
+				case ch <- msg:
+				default:
+					lspLogger.Debug("Response handler for ID %v is no longer waiting", msg.ID)
+				}
 				close(ch)
 			} else {
 				lspLogger.Debug("No handler for response ID: %v", msg.ID)
@@ -223,8 +227,17 @@ func (c *Client) Call(ctx context.Context, method string, params any, result any
 
 	lspLogger.Debug("Waiting for response to request ID: %v", msg.ID)
 
-	// Wait for response
-	resp := <-ch
+	// Wait for response or cancellation.
+	var resp *Message
+	select {
+	case msg, ok := <-ch:
+		if !ok {
+			return fmt.Errorf("request %s response channel closed", method)
+		}
+		resp = msg
+	case <-ctx.Done():
+		return fmt.Errorf("request %s canceled: %w", method, ctx.Err())
+	}
 
 	lspLogger.Debug("Received response for request ID: %v", msg.ID)
 
@@ -252,6 +265,11 @@ func (c *Client) Call(ctx context.Context, method string, params any, result any
 // Notify sends a notification (a request without an ID that doesn't expect a response)
 func (c *Client) Notify(ctx context.Context, method string, params any) error {
 	lspLogger.Debug("Sending notification: method=%s", method)
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("notification %s canceled: %w", method, ctx.Err())
+	default:
+	}
 
 	msg, err := NewNotification(method, params)
 	if err != nil {

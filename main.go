@@ -91,6 +91,7 @@ func (s *mcpServer) initializeLSP() error {
 	}
 	s.lspClient = client
 	s.workspaceWatcher = watcher.NewWorkspaceWatcher(client)
+	s.workspaceWatcher.RegisterHandlers(s.ctx, s.config.workspaceDir)
 
 	initResult, err := client.InitializeLSPClient(s.ctx, s.config.workspaceDir)
 	if err != nil {

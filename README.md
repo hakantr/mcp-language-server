@@ -72,6 +72,26 @@ This is an [MCP](https://modelcontextprotocol.io/introduction) server that runs 
   }
 }
 </pre>
+    <p><strong>Large workspace note</strong>: rust-analyzer may dynamically register broad file watchers. For large Rust monorepos, disable eager opening of every matching file and pass rust-analyzer configuration through <code>MCP_LSP_CONFIGURATION</code> when needed.</p>
+<pre>
+{
+  "mcpServers": {
+    "language-server": {
+      "command": "mcp-language-server",
+      "args": [
+        "--workspace",
+        "/Users/you/dev/yourproject/",
+        "--lsp",
+        "rust-analyzer"
+      ],
+      "env": {
+        "MCP_LSP_OPEN_MATCHING_FILES_ON_REGISTRATION": "false",
+        "MCP_LSP_CONFIGURATION": "{\"rust-analyzer\":{\"cargo\":{\"allTargets\":false},\"check\":{\"allTargets\":false}}}"
+      }
+    }
+  }
+}
+</pre>
   </div>
 </details>
 <details>

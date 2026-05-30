@@ -45,9 +45,11 @@ func (g *GlobPattern) AsPattern() (PatternInfo, error) {
 		basePath := ""
 		switch baseURI := v.BaseURI.Value.(type) {
 		case string:
-			basePath = strings.TrimPrefix(baseURI, "file://")
+			basePath = documentURIStringToPath(baseURI)
 		case DocumentUri:
-			basePath = strings.TrimPrefix(string(baseURI), "file://")
+			basePath = baseURI.Path()
+		case WorkspaceFolder:
+			basePath = documentURIStringToPath(baseURI.URI)
 		default:
 			return nil, fmt.Errorf("unknown BaseURI type: %T", v.BaseURI.Value)
 		}
@@ -55,4 +57,11 @@ func (g *GlobPattern) AsPattern() (PatternInfo, error) {
 	default:
 		return nil, fmt.Errorf("unknown pattern type: %T", g.Value)
 	}
+}
+
+func documentURIStringToPath(raw string) string {
+	if uri, err := ParseDocumentUri(raw); err == nil {
+		return uri.Path()
+	}
+	return strings.TrimPrefix(raw, "file://")
 }
