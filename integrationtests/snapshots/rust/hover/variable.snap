@@ -1,3 +1,8 @@
-test_workspace::types
 
+```rust
+test_workspace::types
+```
+
+```rust
 pub static TEST_VARIABLE: &str = "test variable value"
+```

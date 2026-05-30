@@ -1,0 +1,32 @@
+[
+  {
+    "directory": "{workspace}",
+    "command": "clang++ -std=c++17 -I{workspace}/include -Wunreachable-code -Wall -Wextra -Wno-error -c {workspace}/src/main.cpp -o {workspace}/src/main.o",
+    "file": "{workspace}/src/main.cpp"
+  },
+  {
+    "directory": "{workspace}",
+    "command": "clang++ -std=c++17 -I{workspace}/include -Wunreachable-code -Wall -Wextra -Wno-error -c {workspace}/src/helper.cpp -o {workspace}/src/helper.o",
+    "file": "{workspace}/src/helper.cpp"
+  },
+  {
+    "directory": "{workspace}",
+    "command": "clang++ -std=c++17 -I{workspace}/include -Wunreachable-code -Wall -Wextra -Wno-error -c {workspace}/src/consumer.cpp -o {workspace}/src/consumer.o",
+    "file": "{workspace}/src/consumer.cpp"
+  },
+  {
+    "directory": "{workspace}",
+    "command": "clang++ -std=c++17 -I{workspace}/include -Wunreachable-code -Wall -Wextra -Wno-error -c {workspace}/src/another_consumer.cpp -o {workspace}/src/another_consumer.o",
+    "file": "{workspace}/src/another_consumer.cpp"
+  },
+  {
+    "directory": "{workspace}",
+    "command": "clang++ -std=c++17 -I{workspace}/include -Wunreachable-code -Wall -Wextra -Wno-error -c {workspace}/src/clean.cpp -o {workspace}/src/clean.o",
+    "file": "{workspace}/src/clean.cpp"
+  },
+  {
+    "directory": "{workspace}",
+    "command": "clang++ -std=c++17 -I{workspace}/include -Wunreachable-code -Wall -Wextra -Wno-error -c {workspace}/src/types.cpp -o {workspace}/src/types.o",
+    "file": "{workspace}/src/types.cpp"
+  }
+]

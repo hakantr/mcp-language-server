@@ -155,6 +155,10 @@ func (ts *TestSuite) Setup() error {
 	ts.WorkspaceDir = workspaceDir
 	ts.t.Logf("Copied workspace from %s to %s", ts.Config.WorkspaceDir, workspaceDir)
 
+	if err := replaceWorkspacePlaceholders(filepath.Join(workspaceDir, "compile_commands.json"), workspaceDir); err != nil {
+		return fmt.Errorf("failed to rewrite compile_commands.json placeholders: %w", err)
+	}
+
 	// Create and initialize LSP client
 	args := make([]string, len(ts.Config.Args))
 	for i, arg := range ts.Config.Args {
@@ -193,6 +197,23 @@ func (ts *TestSuite) Setup() error {
 
 	ts.initialized = true
 	return nil
+}
+
+func replaceWorkspacePlaceholders(path string, workspaceDir string) error {
+	content, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	updated := strings.ReplaceAll(string(content), "{workspace}", filepath.ToSlash(workspaceDir))
+	if updated == string(content) {
+		return nil
+	}
+
+	return os.WriteFile(path, []byte(updated), 0644)
 }
 
 // Cleanup stops the LSP and cleans up resources

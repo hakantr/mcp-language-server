@@ -1,3 +1,8 @@
-test_workspace::types::TestStruct
 
+```rust
+test_workspace::types::TestStruct
+```
+
+```rust
 pub fn method(&self) -> String
+```

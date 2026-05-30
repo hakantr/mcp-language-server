@@ -1,6 +1,12 @@
+
+```rust
 test_workspace::types
+```
 
+```rust
 pub trait TestInterface
+```
 
+---
 
 Is dyn-compatible

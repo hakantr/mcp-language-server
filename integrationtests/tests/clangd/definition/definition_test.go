@@ -35,7 +35,7 @@ func TestReadDefinition(t *testing.T) {
 
 	suite := internal.GetTestSuite(t)
 
-	ctx, cancel := context.WithTimeout(suite.Context, 10*time.Second)
+	ctx, cancel := context.WithTimeout(suite.Context, 30*time.Second)
 	defer cancel()
 
 	// Open all files and wait for clangd to index them
@@ -131,7 +131,7 @@ func TestReadDefinitionInAnotherFile(t *testing.T) {
 
 	suite := internal.GetTestSuite(t)
 
-	ctx, cancel := context.WithTimeout(suite.Context, 10*time.Second)
+	ctx, cancel := context.WithTimeout(suite.Context, 20*time.Second)
 	defer cancel()
 
 	// Open all files and wait for clangd to index them

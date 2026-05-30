@@ -47,8 +47,9 @@ type Client struct {
 	openFiles   map[string]*OpenFileInfo
 	openFilesMu sync.RWMutex
 
-	workspaceDir     string
-	positionEncoding protocol.PositionEncodingKind
+	workspaceDir       string
+	positionEncoding   protocol.PositionEncodingKind
+	serverCapabilities protocol.ServerCapabilities
 }
 
 func NewClient(command string, args ...string) (*Client, error) {
@@ -266,6 +267,7 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
 
+	c.serverCapabilities = result.Capabilities
 	if result.Capabilities.PositionEncoding != nil && *result.Capabilities.PositionEncoding != "" {
 		c.positionEncoding = *result.Capabilities.PositionEncoding
 	} else {
@@ -385,6 +387,10 @@ func (c *Client) PositionEncoding() protocol.PositionEncodingKind {
 		return protocol.UTF16
 	}
 	return c.positionEncoding
+}
+
+func (c *Client) SupportsDiagnosticPull() bool {
+	return c.serverCapabilities.DiagnosticProvider != nil
 }
 
 func (c *Client) PositionFromLineColumn(filePath string, line, column int) (protocol.Position, error) {

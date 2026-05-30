@@ -30,24 +30,28 @@ func GetDiagnosticsForFile(ctx context.Context, client *lsp.Client, filePath str
 	// Convert the file path to URI format
 	uri := protocol.URIFromPath(filePath)
 
-	// Request fresh diagnostics
-	diagParams := protocol.DocumentDiagnosticParams{
-		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
-	}
-	report, err := client.Diagnostic(ctx, diagParams)
-	if err != nil {
-		toolsLogger.Error("Failed to get diagnostics: %v", err)
-		if waitErr := waitForServerProcessing(ctx, time.Second); waitErr != nil {
-			return "", waitErr
+	if client.SupportsDiagnosticPull() {
+		// Request fresh diagnostics
+		diagParams := protocol.DocumentDiagnosticParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		}
-	} else {
-		diagnostics, relatedDiagnostics, hasPrimaryDiagnostics := collectDiagnosticReports(uri, report)
-		if hasPrimaryDiagnostics {
-			client.SetFileDiagnostics(uri, diagnostics)
+		report, err := client.Diagnostic(ctx, diagParams)
+		if err != nil {
+			toolsLogger.Error("Failed to get diagnostics: %v", err)
+			if waitErr := waitForServerProcessing(ctx, time.Second); waitErr != nil && len(client.GetFileDiagnostics(uri)) == 0 {
+				return "", waitErr
+			}
+		} else {
+			diagnostics, relatedDiagnostics, hasPrimaryDiagnostics := collectDiagnosticReports(uri, report)
+			if hasPrimaryDiagnostics {
+				client.SetFileDiagnostics(uri, diagnostics)
+			}
+			for relatedURI, related := range relatedDiagnostics {
+				client.SetFileDiagnostics(relatedURI, related)
+			}
 		}
-		for relatedURI, related := range relatedDiagnostics {
-			client.SetFileDiagnostics(relatedURI, related)
-		}
+	} else if waitErr := waitForServerProcessing(ctx, time.Second); waitErr != nil && len(client.GetFileDiagnostics(uri)) == 0 {
+		return "", waitErr
 	}
 
 	// Get diagnostics from the cache
