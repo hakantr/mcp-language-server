@@ -123,6 +123,7 @@ func ListDocumentSymbols(ctx context.Context, client *lsp.Client, filePath strin
 
 	var out strings.Builder
 	out.WriteString(fmt.Sprintf("Document symbols for %s\n", filePath))
+	sortDocumentSymbolResults(symbols)
 	for _, symbol := range symbols {
 		writeDocumentSymbol(&out, symbol, 0)
 	}
@@ -133,10 +134,6 @@ func ListDocumentSymbols(ctx context.Context, client *lsp.Client, filePath strin
 }
 
 func ListWorkspaceSymbols(ctx context.Context, client *lsp.Client, query string, limit int) (string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-
 	result, err := client.Symbol(ctx, protocol.WorkspaceSymbolParams{Query: query})
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch workspace symbols: %w", err)
@@ -147,22 +144,30 @@ func ListWorkspaceSymbols(ctx context.Context, client *lsp.Client, query string,
 		return "", err
 	}
 
-	if len(symbols) > limit {
+	sortWorkspaceSymbols(symbols)
+
+	total := len(symbols)
+	if limit > 0 && len(symbols) > limit {
 		symbols = symbols[:limit]
 	}
 
 	var out strings.Builder
-	out.WriteString(fmt.Sprintf("Workspace symbols for query %q: %d\n", query, len(symbols)))
+	if limit > 0 && total > len(symbols) {
+		out.WriteString(fmt.Sprintf("Workspace symbols for query %q: showing %d of %d\n", query, len(symbols), total))
+	} else {
+		out.WriteString(fmt.Sprintf("Workspace symbols for query %q: %d\n", query, len(symbols)))
+	}
 	for _, symbol := range symbols {
 		loc := symbol.GetLocation()
 		out.WriteString(fmt.Sprintf("- %s", symbol.GetName()))
-		if info, ok := symbol.(*protocol.SymbolInformation); ok {
-			if kind := protocol.TableKindMap[info.Kind]; kind != "" {
-				out.WriteString(fmt.Sprintf(" (%s)", kind))
-			}
-			if info.ContainerName != "" {
-				out.WriteString(fmt.Sprintf(" in %s", info.ContainerName))
-			}
+		if kind := workspaceSymbolKind(symbol); kind != "" {
+			out.WriteString(fmt.Sprintf(" (%s)", kind))
+		}
+		if container := workspaceSymbolContainer(symbol); container != "" {
+			out.WriteString(fmt.Sprintf(" in %s", container))
+		}
+		if tags := workspaceSymbolTags(symbol); len(tags) > 0 {
+			out.WriteString(fmt.Sprintf(" [%s]", strings.Join(tags, ", ")))
 		}
 		if loc.URI != "" {
 			out.WriteString(fmt.Sprintf(" - %s L%d:C%d\n", loc.URI.Path(), loc.Range.Start.Line+1, loc.Range.Start.Character+1))
@@ -227,11 +232,17 @@ func GetInlayHints(ctx context.Context, client *lsp.Client, filePath string, sta
 		endLine = startLine
 	}
 
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("error reading file: %w", err)
+	}
+	endPosition := inclusiveEndLinePosition(string(content), endLine, client.PositionEncoding())
+
 	result, err := client.InlayHint(ctx, protocol.InlayHintParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: protocol.URIFromPath(filePath)},
 		Range: protocol.Range{
 			Start: protocol.Position{Line: uint32(startLine - 1), Character: 0},
-			End:   protocol.Position{Line: uint32(endLine - 1), Character: 0},
+			End:   endPosition,
 		},
 	})
 	if err != nil {
@@ -471,19 +482,228 @@ func formatReferenceLocations(ctx context.Context, client *lsp.Client, refs []pr
 func writeDocumentSymbol(out *strings.Builder, symbol protocol.DocumentSymbolResult, depth int) {
 	indent := strings.Repeat("  ", depth)
 	rng := symbol.GetRange()
-	out.WriteString(fmt.Sprintf("%s- %s L%d:C%d-L%d:C%d\n",
-		indent,
-		symbol.GetName(),
+	out.WriteString(fmt.Sprintf("%s- %s", indent, symbol.GetName()))
+
+	if kind := documentSymbolKind(symbol); kind != "" {
+		out.WriteString(fmt.Sprintf(" (%s)", kind))
+	}
+	if detail := documentSymbolDetail(symbol); detail != "" {
+		out.WriteString(" - " + singleLine(detail))
+	}
+	if container := documentSymbolContainer(symbol); container != "" {
+		out.WriteString(fmt.Sprintf(" in %s", container))
+	}
+	if tags := documentSymbolTags(symbol); len(tags) > 0 {
+		out.WriteString(fmt.Sprintf(" [%s]", strings.Join(tags, ", ")))
+	}
+
+	out.WriteString(fmt.Sprintf(" - range L%d:C%d-L%d:C%d",
 		rng.Start.Line+1,
 		rng.Start.Character+1,
 		rng.End.Line+1,
 		rng.End.Character+1,
 	))
 
+	if selection, ok := documentSymbolSelectionRange(symbol); ok {
+		out.WriteString(fmt.Sprintf(" selection L%d:C%d-L%d:C%d",
+			selection.Start.Line+1,
+			selection.Start.Character+1,
+			selection.End.Line+1,
+			selection.End.Character+1,
+		))
+	}
+	out.WriteString("\n")
+
 	if ds, ok := symbol.(*protocol.DocumentSymbol); ok {
+		sortDocumentSymbols(ds.Children)
 		for i := range ds.Children {
 			writeDocumentSymbol(out, &ds.Children[i], depth+1)
 		}
+	}
+}
+
+func sortWorkspaceSymbols(symbols []protocol.WorkspaceSymbolResult) {
+	sort.SliceStable(symbols, func(i, j int) bool {
+		left := symbols[i]
+		right := symbols[j]
+		leftLoc := left.GetLocation()
+		rightLoc := right.GetLocation()
+
+		keys := []struct {
+			left  string
+			right string
+		}{
+			{string(leftLoc.URI), string(rightLoc.URI)},
+			{fmt.Sprintf("%010d:%010d", leftLoc.Range.Start.Line, leftLoc.Range.Start.Character), fmt.Sprintf("%010d:%010d", rightLoc.Range.Start.Line, rightLoc.Range.Start.Character)},
+			{workspaceSymbolKind(left), workspaceSymbolKind(right)},
+			{left.GetName(), right.GetName()},
+			{workspaceSymbolContainer(left), workspaceSymbolContainer(right)},
+		}
+
+		for _, key := range keys {
+			if key.left != key.right {
+				return key.left < key.right
+			}
+		}
+		return false
+	})
+}
+
+func sortDocumentSymbols(symbols []protocol.DocumentSymbol) {
+	sort.SliceStable(symbols, func(i, j int) bool {
+		left := symbols[i]
+		right := symbols[j]
+		if left.Range.Start.Line != right.Range.Start.Line {
+			return left.Range.Start.Line < right.Range.Start.Line
+		}
+		if left.Range.Start.Character != right.Range.Start.Character {
+			return left.Range.Start.Character < right.Range.Start.Character
+		}
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		return left.Name < right.Name
+	})
+}
+
+func sortDocumentSymbolResults(symbols []protocol.DocumentSymbolResult) {
+	sort.SliceStable(symbols, func(i, j int) bool {
+		left := symbols[i]
+		right := symbols[j]
+		leftRange := left.GetRange()
+		rightRange := right.GetRange()
+		if leftRange.Start.Line != rightRange.Start.Line {
+			return leftRange.Start.Line < rightRange.Start.Line
+		}
+		if leftRange.Start.Character != rightRange.Start.Character {
+			return leftRange.Start.Character < rightRange.Start.Character
+		}
+		if documentSymbolKind(left) != documentSymbolKind(right) {
+			return documentSymbolKind(left) < documentSymbolKind(right)
+		}
+		return left.GetName() < right.GetName()
+	})
+}
+
+func workspaceSymbolKind(symbol protocol.WorkspaceSymbolResult) string {
+	switch value := symbol.(type) {
+	case *protocol.WorkspaceSymbol:
+		return symbolKind(value.Kind)
+	case *protocol.SymbolInformation:
+		return symbolKind(value.Kind)
+	default:
+		return ""
+	}
+}
+
+func workspaceSymbolContainer(symbol protocol.WorkspaceSymbolResult) string {
+	switch value := symbol.(type) {
+	case *protocol.WorkspaceSymbol:
+		return value.ContainerName
+	case *protocol.SymbolInformation:
+		return value.ContainerName
+	default:
+		return ""
+	}
+}
+
+func workspaceSymbolTags(symbol protocol.WorkspaceSymbolResult) []string {
+	switch value := symbol.(type) {
+	case *protocol.WorkspaceSymbol:
+		return symbolTags(value.Tags, false)
+	case *protocol.SymbolInformation:
+		return symbolTags(value.Tags, value.Deprecated)
+	default:
+		return nil
+	}
+}
+
+func documentSymbolKind(symbol protocol.DocumentSymbolResult) string {
+	switch value := symbol.(type) {
+	case *protocol.DocumentSymbol:
+		return symbolKind(value.Kind)
+	case *protocol.SymbolInformation:
+		return symbolKind(value.Kind)
+	default:
+		return ""
+	}
+}
+
+func documentSymbolDetail(symbol protocol.DocumentSymbolResult) string {
+	if value, ok := symbol.(*protocol.DocumentSymbol); ok {
+		return value.Detail
+	}
+	return ""
+}
+
+func documentSymbolContainer(symbol protocol.DocumentSymbolResult) string {
+	if value, ok := symbol.(*protocol.SymbolInformation); ok {
+		return value.ContainerName
+	}
+	return ""
+}
+
+func documentSymbolTags(symbol protocol.DocumentSymbolResult) []string {
+	switch value := symbol.(type) {
+	case *protocol.DocumentSymbol:
+		return symbolTags(value.Tags, value.Deprecated)
+	case *protocol.SymbolInformation:
+		return symbolTags(value.Tags, value.Deprecated)
+	default:
+		return nil
+	}
+}
+
+func documentSymbolSelectionRange(symbol protocol.DocumentSymbolResult) (protocol.Range, bool) {
+	if value, ok := symbol.(*protocol.DocumentSymbol); ok {
+		return value.SelectionRange, true
+	}
+	return protocol.Range{}, false
+}
+
+func symbolKind(kind protocol.SymbolKind) string {
+	if name := protocol.TableKindMap[kind]; name != "" {
+		return name
+	}
+	return fmt.Sprintf("Kind%d", kind)
+}
+
+func symbolTags(tags []protocol.SymbolTag, deprecated bool) []string {
+	out := make([]string, 0, len(tags)+1)
+	seenDeprecated := false
+	for _, tag := range tags {
+		switch tag {
+		case protocol.DeprecatedSymbol:
+			out = append(out, "deprecated")
+			seenDeprecated = true
+		default:
+			out = append(out, fmt.Sprintf("tag%d", tag))
+		}
+	}
+	if deprecated && !seenDeprecated {
+		out = append(out, "deprecated")
+	}
+	return out
+}
+
+func inclusiveEndLinePosition(content string, endLine int, encoding protocol.PositionEncodingKind) protocol.Position {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		return protocol.Position{}
+	}
+	if endLine < 1 {
+		endLine = 1
+	}
+
+	if endLine < len(lines) {
+		return protocol.Position{Line: uint32(endLine), Character: 0}
+	}
+
+	lastLineIndex := len(lines) - 1
+	lastLine := lines[lastLineIndex]
+	return protocol.Position{
+		Line:      uint32(lastLineIndex),
+		Character: utilities.ByteOffsetToCharacterForEncoding(lastLine, len(lastLine), encoding),
 	}
 }
 

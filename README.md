@@ -195,8 +195,8 @@ This is an [MCP](https://modelcontextprotocol.io/introduction) server that runs 
 - `references_at_position`: Locates references for the symbol at a precise file/line/column location.
 - `type_definition_at_position`: Finds the type definition for the symbol at a precise location.
 - `implementation_at_position`: Finds implementations for the symbol at a precise location.
-- `document_symbols`: Lists the symbol tree for a file.
-- `workspace_symbols`: Searches symbols across the workspace.
+- `document_symbols`: Lists the symbol tree for a file, including symbol kind, detail/signature metadata when provided by the language server, ranges, selection ranges, and tags.
+- `workspace_symbols`: Searches symbols across the workspace. Omit `query` or pass an empty string to request all workspace symbols from servers that support it; results are sorted deterministically and are not capped unless `limit` is set.
 - `signature_help`: Shows callable signatures at a precise location.
 - `completions`: Shows completion candidates at a precise location.
 - `inlay_hints`: Shows inlay hints for a line range.

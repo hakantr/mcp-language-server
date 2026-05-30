@@ -280,17 +280,20 @@ func (s *mcpServer) registerTools() error {
 	})
 
 	workspaceSymbolsTool := mcp.NewTool("workspace_symbols",
-		mcp.WithDescription("Search workspace symbols by query."),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Symbol query string")),
-		mcp.WithNumber("limit", mcp.Description("Maximum number of symbols to return")),
+		mcp.WithDescription("Search workspace symbols by query. Omit query or pass an empty string to request the full workspace symbol surface supported by the language server."),
+		mcp.WithString("query", mcp.Description("Symbol query string. Empty requests all workspace symbols from servers that support it.")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of symbols to return. Omit or pass 0 to return all results.")),
 	)
 
 	s.mcpServer.AddTool(workspaceSymbolsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query, err := requiredStringArg(request, "query")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		query := ""
+		if rawQuery, ok := request.Params.Arguments["query"]; ok {
+			query, ok = rawQuery.(string)
+			if !ok {
+				return mcp.NewToolResultError("query must be a string"), nil
+			}
 		}
-		limit, err := intArg(request, "limit", 50)
+		limit, err := intArg(request, "limit", 0)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
