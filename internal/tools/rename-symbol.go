@@ -27,11 +27,10 @@ func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line
 		return "", fmt.Errorf("could not open file: %v", err)
 	}
 
-	// Convert 1-indexed line/column to 0-indexed for LSP protocol
 	uri := protocol.URIFromPath(filePath)
-	position := protocol.Position{
-		Line:      uint32(line - 1),
-		Character: uint32(column - 1),
+	position, err := client.PositionFromLineColumn(filePath, line, column)
+	if err != nil {
+		return "", err
 	}
 
 	// Create the rename parameters

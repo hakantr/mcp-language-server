@@ -190,11 +190,28 @@ This is an [MCP](https://modelcontextprotocol.io/introduction) server that runs 
 ## Tools
 
 - `definition`: Retrieves the complete source code definition of any symbol (function, type, constant, etc.) from your codebase.
+- `definition_at_position`: Retrieves the definition for the symbol at a precise file/line/column location.
 - `references`: Locates all usages and references of a symbol throughout the codebase.
+- `references_at_position`: Locates references for the symbol at a precise file/line/column location.
+- `type_definition_at_position`: Finds the type definition for the symbol at a precise location.
+- `implementation_at_position`: Finds implementations for the symbol at a precise location.
+- `document_symbols`: Lists the symbol tree for a file.
+- `workspace_symbols`: Searches symbols across the workspace.
+- `signature_help`: Shows callable signatures at a precise location.
+- `completions`: Shows completion candidates at a precise location.
+- `inlay_hints`: Shows inlay hints for a line range.
+- `code_actions`: Lists code actions for a file range.
 - `diagnostics`: Provides diagnostic information for a specific file, including warnings and errors.
 - `hover`: Display documentation, type hints, or other hover information for a given location.
 - `rename_symbol`: Rename a symbol across a project.
 - `edit_file`: Allows making multiple text edits to a file based on line numbers. Provides a more reliable and context-economical way to edit files compared to search and replace based edit tools.
+
+Useful environment variables:
+
+- `MCP_LSP_CONFIGURATION`: JSON object returned to `workspace/configuration` requests from the language server.
+- `MCP_LSP_OPEN_MATCHING_FILES_ON_REGISTRATION`: Set to `false` to avoid eagerly opening all files that match dynamically registered file watchers.
+- `MCP_LSP_READY_TIMEOUT_MS`: Maximum startup readiness probe time in milliseconds. Set to `0` to skip the probe.
+- `LSP_CONTEXT_LINES`: Overrides reference and diagnostic context line counts.
 
 ## About
 

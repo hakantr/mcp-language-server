@@ -14,13 +14,15 @@ import (
 	"time"
 
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
+	"github.com/isaacphi/mcp-language-server/internal/utilities"
 )
 
 type Client struct {
-	Cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr io.ReadCloser
+	Cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  *bufio.Reader
+	stderr  io.ReadCloser
+	writeMu sync.Mutex
 
 	// Request ID counter
 	nextID atomic.Int32
@@ -44,6 +46,9 @@ type Client struct {
 	// Files are currently opened by the LSP
 	openFiles   map[string]*OpenFileInfo
 	openFilesMu sync.RWMutex
+
+	workspaceDir     string
+	positionEncoding protocol.PositionEncodingKind
 }
 
 func NewClient(command string, args ...string) (*Client, error) {
@@ -76,6 +81,7 @@ func NewClient(command string, args ...string) (*Client, error) {
 		serverRequestHandlers: make(map[string]ServerRequestHandler),
 		diagnostics:           make(map[protocol.DocumentUri][]protocol.Diagnostic),
 		openFiles:             make(map[string]*OpenFileInfo),
+		positionEncoding:      protocol.UTF16,
 	}
 
 	// Start the LSP server process
@@ -113,15 +119,27 @@ func (c *Client) RegisterServerRequestHandler(method string, handler ServerReque
 	c.serverRequestHandlers[method] = handler
 }
 
+func (c *Client) writeMessage(msg *Message) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return WriteMessage(c.stdin, msg)
+}
+
 func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (*protocol.InitializeResult, error) {
 	// Register handlers before initialize. Some language servers send
 	// server-to-client requests while the initialize request is still pending.
 	c.RegisterServerRequestHandler("workspace/applyEdit", HandleApplyEdit)
 	c.RegisterServerRequestHandler("workspace/configuration", HandleWorkspaceConfiguration)
 	c.RegisterServerRequestHandler("client/registerCapability", HandleRegisterCapability)
+	c.RegisterServerRequestHandler("workspace/diagnostic/refresh", HandleDiagnosticRefresh)
 	c.RegisterNotificationHandler("window/showMessage", HandleServerMessage)
 	c.RegisterNotificationHandler("textDocument/publishDiagnostics",
 		func(params json.RawMessage) { HandleDiagnostics(c, params) })
+
+	c.workspaceDir = workspaceDir
+	if err := utilities.SetWorkspaceRoot(workspaceDir); err != nil {
+		return nil, err
+	}
 
 	workspaceURI := protocol.URIFromPath(workspaceDir)
 	initParams := &protocol.InitializeParams{
@@ -143,6 +161,12 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 			RootPath: workspaceDir,
 			RootURI:  workspaceURI,
 			Capabilities: protocol.ClientCapabilities{
+				General: &protocol.GeneralClientCapabilities{
+					PositionEncodings: []protocol.PositionEncodingKind{
+						protocol.UTF8,
+						protocol.UTF16,
+					},
+				},
 				Workspace: protocol.WorkspaceClientCapabilities{
 					Configuration: true,
 					DidChangeConfiguration: protocol.DidChangeConfigurationClientCapabilities{
@@ -151,6 +175,9 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 					DidChangeWatchedFiles: protocol.DidChangeWatchedFilesClientCapabilities{
 						DynamicRegistration:    true,
 						RelativePatternSupport: true,
+					},
+					Diagnostics: &protocol.DiagnosticWorkspaceClientCapabilities{
+						RefreshSupport: true,
 					},
 				},
 				TextDocument: protocol.TextDocumentClientCapabilities{
@@ -164,6 +191,32 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 					CodeLens: &protocol.CodeLensClientCapabilities{
 						DynamicRegistration: true,
 					},
+					Hover: &protocol.HoverClientCapabilities{
+						DynamicRegistration: true,
+						ContentFormat: []protocol.MarkupKind{
+							protocol.PlainText,
+							protocol.Markdown,
+						},
+					},
+					SignatureHelp: &protocol.SignatureHelpClientCapabilities{
+						DynamicRegistration: true,
+						ContextSupport:      true,
+					},
+					Definition: &protocol.DefinitionClientCapabilities{
+						DynamicRegistration: true,
+						LinkSupport:         true,
+					},
+					TypeDefinition: &protocol.TypeDefinitionClientCapabilities{
+						DynamicRegistration: true,
+						LinkSupport:         true,
+					},
+					Implementation: &protocol.ImplementationClientCapabilities{
+						DynamicRegistration: true,
+						LinkSupport:         true,
+					},
+					References: &protocol.ReferenceClientCapabilities{
+						DynamicRegistration: true,
+					},
 					DocumentSymbol: protocol.DocumentSymbolClientCapabilities{},
 					CodeAction: protocol.CodeActionClientCapabilities{
 						CodeActionLiteralSupport: protocol.ClientCodeActionLiteralOptions{
@@ -175,6 +228,10 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 					PublishDiagnostics: protocol.PublishDiagnosticsClientCapabilities{
 						VersionSupport: true,
 					},
+					Diagnostic: &protocol.DiagnosticClientCapabilities{
+						DynamicRegistration:    true,
+						RelatedDocumentSupport: true,
+					},
 					SemanticTokens: protocol.SemanticTokensClientCapabilities{
 						Requests: protocol.ClientSemanticTokensRequestOptions{
 							Range: &protocol.Or_ClientSemanticTokensRequestOptions_range{},
@@ -183,6 +240,9 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 						TokenTypes:     []string{},
 						TokenModifiers: []string{},
 						Formats:        []protocol.TokenFormat{},
+					},
+					InlayHint: &protocol.InlayHintClientCapabilities{
+						DynamicRegistration: true,
 					},
 				},
 				Window: protocol.WindowClientCapabilities{},
@@ -205,6 +265,14 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 	if err := c.Call(ctx, "initialize", initParams, &result); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
+
+	if result.Capabilities.PositionEncoding != nil && *result.Capabilities.PositionEncoding != "" {
+		c.positionEncoding = *result.Capabilities.PositionEncoding
+	} else {
+		c.positionEncoding = protocol.UTF16
+	}
+	utilities.SetPositionEncoding(c.positionEncoding)
+	lspLogger.Info("Using LSP position encoding: %s", c.positionEncoding)
 
 	// Notify the LSP server
 	err := c.Initialized(ctx, protocol.InitializedParams{})
@@ -273,16 +341,64 @@ const (
 )
 
 func (c *Client) WaitForServerReady(ctx context.Context) error {
-	// TODO: wait for specific messages or poll workspace/symbol
-	timer := time.NewTimer(time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	timeout := 30 * time.Second
+	if raw := os.Getenv("MCP_LSP_READY_TIMEOUT_MS"); raw != "" {
+		if parsed, err := time.ParseDuration(raw + "ms"); err == nil && parsed >= 0 {
+			timeout = parsed
+		}
 	}
+
+	if timeout == 0 {
+		return nil
+	}
+
+	readyCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		probeCtx, probeCancel := context.WithTimeout(readyCtx, 2*time.Second)
+		_, err := c.Symbol(probeCtx, protocol.WorkspaceSymbolParams{Query: "__mcp_language_server_ready_probe__"})
+		probeCancel()
+		if err == nil {
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "method not found") {
+			lspLogger.Debug("workspace/symbol readiness probe unsupported: %v", err)
+			return nil
+		}
+
+		select {
+		case <-ticker.C:
+		case <-readyCtx.Done():
+			lspLogger.Warn("LSP readiness probe timed out after %s; continuing startup: %v", timeout, err)
+			return nil
+		}
+	}
+}
+
+func (c *Client) PositionEncoding() protocol.PositionEncodingKind {
+	if c.positionEncoding == "" {
+		return protocol.UTF16
+	}
+	return c.positionEncoding
+}
+
+func (c *Client) PositionFromLineColumn(filePath string, line, column int) (protocol.Position, error) {
+	absPath, err := utilities.ValidatePathInWorkspace(filePath)
+	if err != nil {
+		return protocol.Position{}, err
+	}
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return protocol.Position{}, fmt.Errorf("error reading file: %w", err)
+	}
+
+	return utilities.LineColumnToPosition(string(content), line, column, c.PositionEncoding())
 }
 
 type OpenFileInfo struct {
@@ -291,6 +407,11 @@ type OpenFileInfo struct {
 }
 
 func (c *Client) OpenFile(ctx context.Context, filepath string) error {
+	filepath, err := utilities.ValidatePathInWorkspace(filepath)
+	if err != nil {
+		return err
+	}
+
 	uri := protocol.URIFromPath(filepath)
 	uriKey := string(uri)
 
@@ -333,6 +454,11 @@ func (c *Client) OpenFile(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) NotifyChange(ctx context.Context, filepath string) error {
+	filepath, err := utilities.ValidatePathInWorkspace(filepath)
+	if err != nil {
+		return err
+	}
+
 	uri := protocol.URIFromPath(filepath)
 	uriKey := string(uri)
 
@@ -373,6 +499,11 @@ func (c *Client) NotifyChange(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) CloseFile(ctx context.Context, filepath string) error {
+	filepath, err := utilities.ValidatePathInWorkspace(filepath)
+	if err != nil {
+		return err
+	}
+
 	uri := protocol.URIFromPath(filepath)
 	uriKey := string(uri)
 
@@ -401,6 +532,11 @@ func (c *Client) CloseFile(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) IsFileOpen(filepath string) bool {
+	filepath, err := utilities.ValidatePathInWorkspace(filepath)
+	if err != nil {
+		return false
+	}
+
 	uri := protocol.URIFromPath(filepath)
 	c.openFilesMu.RLock()
 	defer c.openFilesMu.RUnlock()
@@ -435,5 +571,17 @@ func (c *Client) GetFileDiagnostics(uri protocol.DocumentUri) []protocol.Diagnos
 	c.diagnosticsMu.RLock()
 	defer c.diagnosticsMu.RUnlock()
 
-	return c.diagnostics[uri]
+	diagnostics := c.diagnostics[uri]
+	out := make([]protocol.Diagnostic, len(diagnostics))
+	copy(out, diagnostics)
+	return out
+}
+
+func (c *Client) SetFileDiagnostics(uri protocol.DocumentUri, diagnostics []protocol.Diagnostic) {
+	c.diagnosticsMu.Lock()
+	defer c.diagnosticsMu.Unlock()
+
+	out := make([]protocol.Diagnostic, len(diagnostics))
+	copy(out, diagnostics)
+	c.diagnostics[uri] = out
 }

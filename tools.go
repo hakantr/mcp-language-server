@@ -143,6 +143,287 @@ func (s *mcpServer) registerTools() error {
 		return mcp.NewToolResultText(text), nil
 	})
 
+	definitionAtPositionTool := mcp.NewTool("definition_at_position",
+		mcp.WithDescription("Read the source code definition for the symbol at an exact file position."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
+	)
+
+	s.mcpServer.AddTool(definitionAtPositionTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		line, err := intArg(request, "line", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		column, err := intArg(request, "column", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		text, err := tools.DefinitionAtPosition(ctx, s.lspClient, filePath, line, column)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get definition: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	typeDefinitionTool := mcp.NewTool("type_definition_at_position",
+		mcp.WithDescription("Find the type definition for the symbol at an exact file position."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
+	)
+
+	s.mcpServer.AddTool(typeDefinitionTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		line, err := intArg(request, "line", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		column, err := intArg(request, "column", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		text, err := tools.TypeDefinitionAtPosition(ctx, s.lspClient, filePath, line, column)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get type definition: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	implementationTool := mcp.NewTool("implementation_at_position",
+		mcp.WithDescription("Find implementations for the symbol at an exact file position."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
+	)
+
+	s.mcpServer.AddTool(implementationTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		line, err := intArg(request, "line", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		column, err := intArg(request, "column", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		text, err := tools.ImplementationAtPosition(ctx, s.lspClient, filePath, line, column)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get implementation: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	referencesAtPositionTool := mcp.NewTool("references_at_position",
+		mcp.WithDescription("Find references for the symbol at an exact file position."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
+		mcp.WithBoolean("includeDeclaration", mcp.Description("If true, includes the symbol declaration in results"), mcp.DefaultBool(false)),
+		mcp.WithNumber("contextLines", mcp.Description("Lines to include around each reference")),
+	)
+
+	s.mcpServer.AddTool(referencesAtPositionTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		line, err := intArg(request, "line", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		column, err := intArg(request, "column", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		contextLines, err := intArg(request, "contextLines", 5)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		includeDeclaration := boolArg(request, "includeDeclaration", false)
+
+		text, err := tools.FindReferencesAtPosition(ctx, s.lspClient, filePath, line, column, includeDeclaration, contextLines)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to find references: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	documentSymbolsTool := mcp.NewTool("document_symbols",
+		mcp.WithDescription("List the symbol tree for a file."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file to inspect")),
+	)
+
+	s.mcpServer.AddTool(documentSymbolsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text, err := tools.ListDocumentSymbols(ctx, s.lspClient, filePath)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get document symbols: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	workspaceSymbolsTool := mcp.NewTool("workspace_symbols",
+		mcp.WithDescription("Search workspace symbols by query."),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Symbol query string")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of symbols to return")),
+	)
+
+	s.mcpServer.AddTool(workspaceSymbolsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		query, err := requiredStringArg(request, "query")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		limit, err := intArg(request, "limit", 50)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text, err := tools.ListWorkspaceSymbols(ctx, s.lspClient, query, limit)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get workspace symbols: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	signatureHelpTool := mcp.NewTool("signature_help",
+		mcp.WithDescription("Get callable signature help at an exact file position."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
+	)
+
+	s.mcpServer.AddTool(signatureHelpTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		line, err := intArg(request, "line", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		column, err := intArg(request, "column", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text, err := tools.GetSignatureHelp(ctx, s.lspClient, filePath, line, column)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get signature help: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	inlayHintsTool := mcp.NewTool("inlay_hints",
+		mcp.WithDescription("Get inlay hints for a line range in a file."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
+		mcp.WithNumber("startLine", mcp.Required(), mcp.Description("1-indexed start line")),
+		mcp.WithNumber("endLine", mcp.Required(), mcp.Description("1-indexed end line")),
+	)
+
+	s.mcpServer.AddTool(inlayHintsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		startLine, err := intArg(request, "startLine", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		endLine, err := intArg(request, "endLine", startLine)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text, err := tools.GetInlayHints(ctx, s.lspClient, filePath, startLine, endLine)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get inlay hints: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	completionsTool := mcp.NewTool("completions",
+		mcp.WithDescription("Get completion candidates at an exact file position."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of completions to return")),
+	)
+
+	s.mcpServer.AddTool(completionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		line, err := intArg(request, "line", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		column, err := intArg(request, "column", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		limit, err := intArg(request, "limit", 50)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text, err := tools.GetCompletions(ctx, s.lspClient, filePath, line, column, limit)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get completions: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	codeActionsTool := mcp.NewTool("code_actions",
+		mcp.WithDescription("List code actions available for a file range."),
+		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
+		mcp.WithNumber("startLine", mcp.Required(), mcp.Description("1-indexed start line")),
+		mcp.WithNumber("startColumn", mcp.Required(), mcp.Description("1-indexed start column")),
+		mcp.WithNumber("endLine", mcp.Required(), mcp.Description("1-indexed end line")),
+		mcp.WithNumber("endColumn", mcp.Required(), mcp.Description("1-indexed end column")),
+	)
+
+	s.mcpServer.AddTool(codeActionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, err := requiredStringArg(request, "filePath")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		startLine, err := intArg(request, "startLine", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		startColumn, err := intArg(request, "startColumn", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		endLine, err := intArg(request, "endLine", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		endColumn, err := intArg(request, "endColumn", 0)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text, err := tools.GetCodeActions(ctx, s.lspClient, filePath, startLine, startColumn, endLine, endColumn)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get code actions: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
 	getDiagnosticsTool := mcp.NewTool("diagnostics",
 		mcp.WithDescription("Get diagnostic information for a specific file from the language server."),
 		mcp.WithString("filePath",
@@ -367,4 +648,38 @@ func (s *mcpServer) registerTools() error {
 
 	coreLogger.Info("Successfully registered all MCP tools")
 	return nil
+}
+
+func requiredStringArg(request mcp.CallToolRequest, name string) (string, error) {
+	value, ok := request.Params.Arguments[name].(string)
+	if !ok {
+		return "", fmt.Errorf("%s must be a string", name)
+	}
+	return value, nil
+}
+
+func intArg(request mcp.CallToolRequest, name string, defaultValue int) (int, error) {
+	raw, ok := request.Params.Arguments[name]
+	if !ok {
+		return defaultValue, nil
+	}
+
+	switch v := raw.(type) {
+	case float64:
+		return int(v), nil
+	case int:
+		return v, nil
+	case int64:
+		return int(v), nil
+	default:
+		return 0, fmt.Errorf("%s must be a number", name)
+	}
+}
+
+func boolArg(request mcp.CallToolRequest, name string, defaultValue bool) bool {
+	value, ok := request.Params.Arguments[name].(bool)
+	if !ok {
+		return defaultValue
+	}
+	return value
 }

@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
@@ -20,9 +23,223 @@ var (
 	osRename    = os.Rename
 )
 
+var (
+	configMu         sync.RWMutex
+	workspaceRoot    string
+	positionEncoding = protocol.UTF16
+)
+
+// SetWorkspaceRoot restricts future file edits to paths under root. An empty
+// root disables the restriction, which keeps low-level unit tests lightweight.
+func SetWorkspaceRoot(root string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	if root == "" {
+		workspaceRoot = ""
+		return nil
+	}
+
+	absRoot, err := cleanAbsPath(root)
+	if err != nil {
+		return err
+	}
+	workspaceRoot = absRoot
+	return nil
+}
+
+// SetPositionEncoding records the LSP position encoding selected by the server.
+func SetPositionEncoding(encoding protocol.PositionEncodingKind) {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	if encoding == "" {
+		encoding = protocol.UTF16
+	}
+	positionEncoding = encoding
+}
+
+func currentPositionEncoding() protocol.PositionEncodingKind {
+	configMu.RLock()
+	defer configMu.RUnlock()
+
+	if positionEncoding == "" {
+		return protocol.UTF16
+	}
+	return positionEncoding
+}
+
+func currentWorkspaceRoot() string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return workspaceRoot
+}
+
+func cleanAbsPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	if realPath, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = realPath
+	}
+
+	return filepath.Clean(absPath), nil
+}
+
+// ValidatePathInWorkspace returns an absolute clean path if it is inside the
+// configured workspace root.
+func ValidatePathInWorkspace(path string) (string, error) {
+	absPath, err := cleanAbsPath(path)
+	if err != nil {
+		return "", err
+	}
+
+	root := currentWorkspaceRoot()
+	if root == "" {
+		return absPath, nil
+	}
+
+	rel, err := filepath.Rel(root, absPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to compare path with workspace: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path is outside workspace: %s", path)
+	}
+
+	return absPath, nil
+}
+
+// ByteOffsetToCharacter converts a byte offset in line to the current LSP
+// position encoding.
+func ByteOffsetToCharacter(line string, byteOffset int) uint32 {
+	return ByteOffsetToCharacterForEncoding(line, byteOffset, currentPositionEncoding())
+}
+
+func ByteOffsetToCharacterForEncoding(line string, byteOffset int, encoding protocol.PositionEncodingKind) uint32 {
+	if byteOffset < 0 {
+		byteOffset = 0
+	}
+	if byteOffset > len(line) {
+		byteOffset = len(line)
+	}
+
+	switch encoding {
+	case protocol.UTF8:
+		return uint32(byteOffset)
+	case protocol.UTF32:
+		return uint32(utf8.RuneCountInString(line[:byteOffset]))
+	default:
+		units := 0
+		for idx, r := range line {
+			if idx >= byteOffset {
+				break
+			}
+			if r > 0xFFFF {
+				units += 2
+			} else {
+				units++
+			}
+		}
+		return uint32(units)
+	}
+}
+
+// PositionCharacterToByteOffset converts an LSP character offset to a byte
+// offset in line using the currently selected position encoding.
+func PositionCharacterToByteOffset(line string, character uint32) int {
+	return CharacterToByteOffsetForEncoding(line, character, currentPositionEncoding())
+}
+
+func CharacterToByteOffsetForEncoding(line string, character uint32, encoding protocol.PositionEncodingKind) int {
+	target := int(character)
+	if target <= 0 {
+		return 0
+	}
+
+	switch encoding {
+	case protocol.UTF8:
+		if target > len(line) {
+			return len(line)
+		}
+		return target
+	case protocol.UTF32:
+		count := 0
+		for idx := range line {
+			if count == target {
+				return idx
+			}
+			count++
+		}
+		return len(line)
+	default:
+		units := 0
+		for idx, r := range line {
+			if units >= target {
+				return idx
+			}
+			if r > 0xFFFF {
+				units += 2
+			} else {
+				units++
+			}
+			if units >= target {
+				return idx + utf8.RuneLen(r)
+			}
+		}
+		return len(line)
+	}
+}
+
+func ColumnToByteOffset(line string, column int) int {
+	if column <= 1 {
+		return 0
+	}
+
+	target := column - 1
+	count := 0
+	for idx := range line {
+		if count == target {
+			return idx
+		}
+		count++
+	}
+	return len(line)
+}
+
+func LineColumnToPosition(content string, line, column int, encoding protocol.PositionEncodingKind) (protocol.Position, error) {
+	if line < 1 {
+		return protocol.Position{}, fmt.Errorf("line must be >= 1, got %d", line)
+	}
+	if column < 1 {
+		return protocol.Position{}, fmt.Errorf("column must be >= 1, got %d", column)
+	}
+
+	lines := strings.Split(content, "\n")
+	if line > len(lines) {
+		return protocol.Position{}, fmt.Errorf("line %d is outside file with %d lines", line, len(lines))
+	}
+
+	lineText := lines[line-1]
+	byteOffset := ColumnToByteOffset(lineText, column)
+	return protocol.Position{
+		Line:      uint32(line - 1),
+		Character: ByteOffsetToCharacterForEncoding(lineText, byteOffset, encoding),
+	}, nil
+}
+
 // ApplyTextEdits applies a sequence of text edits to a file specified by URI
 func ApplyTextEdits(uri protocol.DocumentUri, edits []protocol.TextEdit) error {
-	path := uri.Path()
+	path, err := ValidatePathInWorkspace(uri.Path())
+	if err != nil {
+		return err
+	}
 
 	// Read the file content
 	content, err := osReadFile(path)
@@ -97,8 +314,6 @@ func ApplyTextEdits(uri protocol.DocumentUri, edits []protocol.TextEdit) error {
 func ApplyTextEdit(lines []string, edit protocol.TextEdit, lineEnding string) ([]string, error) {
 	startLine := int(edit.Range.Start.Line)
 	endLine := int(edit.Range.End.Line)
-	startChar := int(edit.Range.Start.Character)
-	endChar := int(edit.Range.End.Character)
 
 	// Validate positions
 	if startLine < 0 || startLine >= len(lines) {
@@ -116,6 +331,7 @@ func ApplyTextEdit(lines []string, edit protocol.TextEdit, lineEnding string) ([
 
 	// Get the prefix of the start line
 	startLineContent := lines[startLine]
+	startChar := PositionCharacterToByteOffset(startLineContent, edit.Range.Start.Character)
 	if startChar < 0 || startChar > len(startLineContent) {
 		startChar = len(startLineContent)
 	}
@@ -123,6 +339,7 @@ func ApplyTextEdit(lines []string, edit protocol.TextEdit, lineEnding string) ([
 
 	// Get the suffix of the end line
 	endLineContent := lines[endLine]
+	endChar := PositionCharacterToByteOffset(endLineContent, edit.Range.End.Character)
 	if endChar < 0 || endChar > len(endLineContent) {
 		endChar = len(endLineContent)
 	}
@@ -173,7 +390,10 @@ func ApplyTextEdit(lines []string, edit protocol.TextEdit, lineEnding string) ([
 // ApplyDocumentChange applies a DocumentChange (create/rename/delete operations)
 func ApplyDocumentChange(change protocol.DocumentChange) error {
 	if change.CreateFile != nil {
-		path := change.CreateFile.URI.Path()
+		path, err := ValidatePathInWorkspace(change.CreateFile.URI.Path())
+		if err != nil {
+			return err
+		}
 		if change.CreateFile.Options != nil {
 			if change.CreateFile.Options.Overwrite {
 				// Proceed with overwrite
@@ -189,7 +409,10 @@ func ApplyDocumentChange(change protocol.DocumentChange) error {
 	}
 
 	if change.DeleteFile != nil {
-		path := change.DeleteFile.URI.Path()
+		path, err := ValidatePathInWorkspace(change.DeleteFile.URI.Path())
+		if err != nil {
+			return err
+		}
 		if change.DeleteFile.Options != nil && change.DeleteFile.Options.Recursive {
 			if err := osRemoveAll(path); err != nil {
 				return fmt.Errorf("failed to delete directory recursively: %w", err)
@@ -202,8 +425,14 @@ func ApplyDocumentChange(change protocol.DocumentChange) error {
 	}
 
 	if change.RenameFile != nil {
-		oldPath := change.RenameFile.OldURI.Path()
-		newPath := change.RenameFile.NewURI.Path()
+		oldPath, err := ValidatePathInWorkspace(change.RenameFile.OldURI.Path())
+		if err != nil {
+			return err
+		}
+		newPath, err := ValidatePathInWorkspace(change.RenameFile.NewURI.Path())
+		if err != nil {
+			return err
+		}
 		if change.RenameFile.Options != nil {
 			if !change.RenameFile.Options.Overwrite {
 				if _, err := osStat(newPath); err == nil {

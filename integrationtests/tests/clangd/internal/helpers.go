@@ -19,7 +19,7 @@ func GetTestSuite(t *testing.T) *common.TestSuite {
 	config := common.LSPTestConfig{
 		Name:             "clangd",
 		Command:          "clangd",
-		Args:             []string{"--compile-commands-dir=" + filepath.Join(repoRoot, "integrationtests/workspaces/clangd")},
+		Args:             []string{"--compile-commands-dir={workspace}"},
 		WorkspaceDir:     filepath.Join(repoRoot, "integrationtests/workspaces/clangd"),
 		InitializeTimeMs: 2000,
 	}

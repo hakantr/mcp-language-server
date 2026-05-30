@@ -150,7 +150,7 @@ func (c *Client) handleMessages() {
 			}
 
 			// Send response back to server
-			if err := WriteMessage(c.stdin, response); err != nil {
+			if err := c.writeMessage(response); err != nil {
 				lspLogger.Error("Error sending response to server: %v", err)
 			}
 
@@ -221,7 +221,7 @@ func (c *Client) Call(ctx context.Context, method string, params any, result any
 	}()
 
 	// Send request
-	if err := WriteMessage(c.stdin, msg); err != nil {
+	if err := c.writeMessage(msg); err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 
@@ -276,7 +276,7 @@ func (c *Client) Notify(ctx context.Context, method string, params any) error {
 		return fmt.Errorf("failed to create notification: %w", err)
 	}
 
-	if err := WriteMessage(c.stdin, msg); err != nil {
+	if err := c.writeMessage(msg); err != nil {
 		return fmt.Errorf("failed to send notification: %w", err)
 	}
 

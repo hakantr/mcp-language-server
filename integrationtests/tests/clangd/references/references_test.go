@@ -36,7 +36,7 @@ func TestFindReferences(t *testing.T) {
 
 	suite := internal.GetTestSuite(t)
 
-	ctx, cancel := context.WithTimeout(suite.Context, 30*time.Second) // Increased timeout for clangd references
+	ctx, cancel := context.WithTimeout(suite.Context, 60*time.Second) // Allow clangd indexing to finish before reference queries.
 	defer cancel()
 
 	// Open all files and wait for clangd to index them

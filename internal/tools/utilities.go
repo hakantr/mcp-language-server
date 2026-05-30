@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
+	"github.com/isaacphi/mcp-language-server/internal/utilities"
 )
 
 func ExtractTextFromLocation(loc protocol.Location) (string, error) {
@@ -29,8 +30,8 @@ func ExtractTextFromLocation(loc protocol.Location) (string, error) {
 	// Handle single-line case
 	if startLine == endLine {
 		line := lines[startLine]
-		startChar := int(loc.Range.Start.Character)
-		endChar := int(loc.Range.End.Character)
+		startChar := utilities.PositionCharacterToByteOffset(line, loc.Range.Start.Character)
+		endChar := utilities.PositionCharacterToByteOffset(line, loc.Range.End.Character)
 
 		if startChar < 0 || startChar > len(line) || endChar < 0 || endChar > len(line) {
 			return "", fmt.Errorf("invalid character range: %v", loc.Range)
@@ -44,7 +45,7 @@ func ExtractTextFromLocation(loc protocol.Location) (string, error) {
 
 	// First line
 	firstLine := lines[startLine]
-	startChar := int(loc.Range.Start.Character)
+	startChar := utilities.PositionCharacterToByteOffset(firstLine, loc.Range.Start.Character)
 	if startChar < 0 || startChar > len(firstLine) {
 		return "", fmt.Errorf("invalid start character: %v", loc.Range.Start)
 	}
@@ -58,7 +59,7 @@ func ExtractTextFromLocation(loc protocol.Location) (string, error) {
 
 	// Last line
 	lastLine := lines[endLine]
-	endChar := int(loc.Range.End.Character)
+	endChar := utilities.PositionCharacterToByteOffset(lastLine, loc.Range.End.Character)
 	if endChar < 0 || endChar > len(lastLine) {
 		return "", fmt.Errorf("invalid end character: %v", loc.Range.End)
 	}

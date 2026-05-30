@@ -141,6 +141,11 @@ func HandleApplyEdit(params json.RawMessage) (any, error) {
 	}, nil
 }
 
+func HandleDiagnosticRefresh(params json.RawMessage) (any, error) {
+	lspLogger.Info("Diagnostic refresh requested by server")
+	return nil, nil
+}
+
 func workspaceEditFailure(err error) string {
 	if err == nil {
 		return ""
