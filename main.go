@@ -13,6 +13,7 @@ import (
 
 	"github.com/isaacphi/mcp-language-server/internal/logging"
 	"github.com/isaacphi/mcp-language-server/internal/lsp"
+	"github.com/isaacphi/mcp-language-server/internal/version"
 	"github.com/isaacphi/mcp-language-server/internal/watcher"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -37,9 +38,15 @@ type mcpServer struct {
 
 func parseConfig() (*config, error) {
 	cfg := &config{}
+	showVersion := flag.Bool("version", false, "Print version information and exit")
 	flag.StringVar(&cfg.workspaceDir, "workspace", "", "Path to workspace directory")
 	flag.StringVar(&cfg.lspCommand, "lsp", "", "LSP command to run (args should be passed after --)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.String())
+		os.Exit(0)
+	}
 
 	// Get remaining args after -- as LSP arguments
 	cfg.lspArgs = flag.Args()
@@ -110,8 +117,8 @@ func (s *mcpServer) start() error {
 	}
 
 	s.mcpServer = server.NewMCPServer(
-		"MCP Language Server",
-		"v0.0.2",
+		"MCP Language Server (hakantr fork)",
+		version.Version,
 		server.WithLogging(),
 		server.WithRecovery(),
 	)
@@ -125,8 +132,6 @@ func (s *mcpServer) start() error {
 }
 
 func main() {
-	coreLogger.Info("MCP Language Server starting")
-
 	done := make(chan struct{})
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -135,6 +140,8 @@ func main() {
 	if err != nil {
 		coreLogger.Fatal("%v", err)
 	}
+
+	coreLogger.Info("MCP Language Server starting")
 
 	server, err := newServer(config)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
 	"github.com/isaacphi/mcp-language-server/internal/utilities"
+	"github.com/isaacphi/mcp-language-server/internal/version"
 )
 
 type Client struct {
@@ -156,8 +157,8 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 		XInitializeParams: protocol.XInitializeParams{
 			ProcessID: int32(os.Getpid()),
 			ClientInfo: &protocol.ClientInfo{
-				Name:    "mcp-language-server",
-				Version: "0.1.0",
+				Name:    version.Name,
+				Version: version.Version,
 			},
 			RootPath: workspaceDir,
 			RootURI:  workspaceURI,
