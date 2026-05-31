@@ -13,9 +13,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    name: Check Nightly Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check changes since previous nightly release
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=manual workflow_dispatch run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git fetch --force origin '+refs/tags/nightly:refs/tags/nightly'; then
+            last_sha="$(git rev-parse refs/tags/nightly^{})"
+            if [[ "$last_sha" == "$GITHUB_SHA" ]]; then
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              echo "reason=no commits since nightly tag $last_sha" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=new commits since nightly tag $last_sha" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=nightly tag does not exist yet" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report skipped build
+        if: steps.check.outputs.should_build == 'false'
+        run: echo "${{ steps.check.outputs.reason }}"
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -65,3 +108,54 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  publish-release:
+    name: Publish Nightly Release
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - build
+    if: needs.changes.outputs.should_build == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly "$GITHUB_SHA"
+          git push --force origin nightly
+
+          notes_file="$RUNNER_TEMP/nightly-release-notes.md"
+          {
+            echo "Automated nightly build for commit \`$GITHUB_SHA\`."
+            echo
+            echo "Build reason: ${{ needs.changes.outputs.reason }}"
+          } > "$notes_file"
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --title "Nightly Build" --notes-file "$notes_file" --prerelease
+            gh release view nightly --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+              if [[ -n "$asset" ]]; then
+                gh release delete-asset nightly "$asset" --yes
+              fi
+            done
+          else
+            gh release create nightly --title "Nightly Build" --notes-file "$notes_file" --prerelease --target "$GITHUB_SHA"
+          fi
+
+          gh release upload nightly release-assets/* --clobber
