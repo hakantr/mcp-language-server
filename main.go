@@ -21,6 +21,13 @@ import (
 // Create a logger for the core component
 var coreLogger = logging.NewLogger(logging.Core)
 
+const mcpInstructions = `Use this server to inspect a language server-backed workspace, especially Rust crates.
+
+For public API inventory work, start with workspace_symbols using an empty query and limit 0, then inspect files with document_symbols.
+Use definition_at_position, definition, hover, signature_help, type_definition_at_position, implementation_at_position, and references_at_position to verify signatures, source definitions, trait/type relationships, and usages.
+Do not treat completions as an exhaustive API discovery source; it is a position-scoped editor completion helper with a default limit of 50.
+get_codelens is read-only and may expose editor code lens hints for a file. edit_file and rename_symbol modify files and should not be used during read-only API discovery.`
+
 type config struct {
 	workspaceDir string
 	lspCommand   string
@@ -121,6 +128,7 @@ func (s *mcpServer) start() error {
 		version.Version,
 		server.WithLogging(),
 		server.WithRecovery(),
+		server.WithInstructions(mcpInstructions),
 	)
 
 	err := s.registerTools()

@@ -8,11 +8,24 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+func readOnlyTool() mcp.ToolOption {
+	return mcp.WithToolAnnotation(mcp.ToolAnnotation{
+		ReadOnlyHint: true,
+	})
+}
+
+func destructiveTool() mcp.ToolOption {
+	return mcp.WithToolAnnotation(mcp.ToolAnnotation{
+		DestructiveHint: true,
+	})
+}
+
 func (s *mcpServer) registerTools() error {
 	coreLogger.Debug("Registering MCP tools")
 
 	applyTextEditTool := mcp.NewTool("edit_file",
 		mcp.WithDescription("Apply multiple text edits to a file."),
+		destructiveTool(),
 		mcp.WithArray("edits",
 			mcp.Required(),
 			mcp.Description("List of edits to apply"),
@@ -97,6 +110,7 @@ func (s *mcpServer) registerTools() error {
 
 	readDefinitionTool := mcp.NewTool("definition",
 		mcp.WithDescription("Read the source code definition of a symbol (function, type, constant, etc.) from the codebase. Returns the complete implementation code where the symbol is defined."),
+		readOnlyTool(),
 		mcp.WithString("symbolName",
 			mcp.Required(),
 			mcp.Description("The name of the symbol whose definition you want to find (e.g. 'mypackage.MyFunction', 'MyType.MyMethod')"),
@@ -121,6 +135,7 @@ func (s *mcpServer) registerTools() error {
 
 	findReferencesTool := mcp.NewTool("references",
 		mcp.WithDescription("Find all usages and references of a symbol throughout the codebase. Returns a list of all files and locations where the symbol appears."),
+		readOnlyTool(),
 		mcp.WithString("symbolName",
 			mcp.Required(),
 			mcp.Description("The name of the symbol to search for (e.g. 'mypackage.MyFunction', 'MyType')"),
@@ -145,6 +160,7 @@ func (s *mcpServer) registerTools() error {
 
 	definitionAtPositionTool := mcp.NewTool("definition_at_position",
 		mcp.WithDescription("Read the source code definition for the symbol at an exact file position."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
 		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
@@ -173,6 +189,7 @@ func (s *mcpServer) registerTools() error {
 
 	typeDefinitionTool := mcp.NewTool("type_definition_at_position",
 		mcp.WithDescription("Find the type definition for the symbol at an exact file position."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
 		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
@@ -201,6 +218,7 @@ func (s *mcpServer) registerTools() error {
 
 	implementationTool := mcp.NewTool("implementation_at_position",
 		mcp.WithDescription("Find implementations for the symbol at an exact file position."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
 		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
@@ -229,6 +247,7 @@ func (s *mcpServer) registerTools() error {
 
 	referencesAtPositionTool := mcp.NewTool("references_at_position",
 		mcp.WithDescription("Find references for the symbol at an exact file position."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file containing the symbol")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
 		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
@@ -264,6 +283,7 @@ func (s *mcpServer) registerTools() error {
 
 	documentSymbolsTool := mcp.NewTool("document_symbols",
 		mcp.WithDescription("List the symbol tree for a file."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file to inspect")),
 	)
 
@@ -281,6 +301,7 @@ func (s *mcpServer) registerTools() error {
 
 	workspaceSymbolsTool := mcp.NewTool("workspace_symbols",
 		mcp.WithDescription("Search workspace symbols by query. Omit query or pass an empty string to request the full workspace symbol surface supported by the language server."),
+		readOnlyTool(),
 		mcp.WithString("query", mcp.Description("Symbol query string. Empty requests all workspace symbols from servers that support it.")),
 		mcp.WithNumber("limit", mcp.Description("Maximum number of symbols to return. Omit or pass 0 to return all results.")),
 	)
@@ -306,6 +327,7 @@ func (s *mcpServer) registerTools() error {
 
 	signatureHelpTool := mcp.NewTool("signature_help",
 		mcp.WithDescription("Get callable signature help at an exact file position."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
 		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
@@ -333,6 +355,7 @@ func (s *mcpServer) registerTools() error {
 
 	inlayHintsTool := mcp.NewTool("inlay_hints",
 		mcp.WithDescription("Get inlay hints for a line range in a file."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
 		mcp.WithNumber("startLine", mcp.Required(), mcp.Description("1-indexed start line")),
 		mcp.WithNumber("endLine", mcp.Required(), mcp.Description("1-indexed end line")),
@@ -360,10 +383,11 @@ func (s *mcpServer) registerTools() error {
 
 	completionsTool := mcp.NewTool("completions",
 		mcp.WithDescription("Get completion candidates at an exact file position."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
 		mcp.WithNumber("line", mcp.Required(), mcp.Description("1-indexed line number")),
 		mcp.WithNumber("column", mcp.Required(), mcp.Description("1-indexed column number")),
-		mcp.WithNumber("limit", mcp.Description("Maximum number of completions to return")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of completions to return. Defaults to 50 when omitted or set to 0.")),
 	)
 
 	s.mcpServer.AddTool(completionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -392,6 +416,7 @@ func (s *mcpServer) registerTools() error {
 
 	codeActionsTool := mcp.NewTool("code_actions",
 		mcp.WithDescription("List code actions available for a file range."),
+		readOnlyTool(),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file")),
 		mcp.WithNumber("startLine", mcp.Required(), mcp.Description("1-indexed start line")),
 		mcp.WithNumber("startColumn", mcp.Required(), mcp.Description("1-indexed start column")),
@@ -429,6 +454,7 @@ func (s *mcpServer) registerTools() error {
 
 	getDiagnosticsTool := mcp.NewTool("diagnostics",
 		mcp.WithDescription("Get diagnostic information for a specific file from the language server."),
+		readOnlyTool(),
 		mcp.WithString("filePath",
 			mcp.Required(),
 			mcp.Description("The path to the file to get diagnostics for"),
@@ -471,32 +497,31 @@ func (s *mcpServer) registerTools() error {
 		return mcp.NewToolResultText(text), nil
 	})
 
-	// Uncomment to add codelens tools
-	//
-	// getCodeLensTool := mcp.NewTool("get_codelens",
-	// 	mcp.WithDescription("Get code lens hints for a given file from the language server."),
-	// 	mcp.WithString("filePath",
-	// 		mcp.Required(),
-	// 		mcp.Description("The path to the file to get code lens information for"),
-	// 	),
-	// )
-	//
-	// s.mcpServer.AddTool(getCodeLensTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// 	// Extract arguments
-	// 	filePath, ok := request.Params.Arguments["filePath"].(string)
-	// 	if !ok {
-	// 		return mcp.NewToolResultError("filePath must be a string"), nil
-	// 	}
-	//
-	// 	coreLogger.Debug("Executing get_codelens for file: %s", filePath)
-	// 	text, err := tools.GetCodeLens(s.ctx, s.lspClient, filePath)
-	// 	if err != nil {
-	// 		coreLogger.Error("Failed to get code lens: %v", err)
-	// 		return mcp.NewToolResultError(fmt.Sprintf("failed to get code lens: %v", err)), nil
-	// 	}
-	// 	return mcp.NewToolResultText(text), nil
-	// })
-	//
+	getCodeLensTool := mcp.NewTool("get_codelens",
+		mcp.WithDescription("Get read-only code lens hints for a given file from the language server."),
+		readOnlyTool(),
+		mcp.WithString("filePath",
+			mcp.Required(),
+			mcp.Description("The path to the file to get code lens information for"),
+		),
+	)
+
+	s.mcpServer.AddTool(getCodeLensTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, ok := request.Params.Arguments["filePath"].(string)
+		if !ok {
+			return mcp.NewToolResultError("filePath must be a string"), nil
+		}
+
+		coreLogger.Debug("Executing get_codelens for file: %s", filePath)
+		text, err := tools.GetCodeLens(ctx, s.lspClient, filePath)
+		if err != nil {
+			coreLogger.Error("Failed to get code lens: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get code lens: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	// execute_codelens remains disabled because it runs LSP commands and may mutate the workspace.
 	// executeCodeLensTool := mcp.NewTool("execute_codelens",
 	// 	mcp.WithDescription("Execute a code lens command for a given file and lens index."),
 	// 	mcp.WithString("filePath",
@@ -538,6 +563,7 @@ func (s *mcpServer) registerTools() error {
 
 	hoverTool := mcp.NewTool("hover",
 		mcp.WithDescription("Get hover information (type, documentation) for a symbol at the specified position."),
+		readOnlyTool(),
 		mcp.WithString("filePath",
 			mcp.Required(),
 			mcp.Description("The path to the file to get hover information for"),
@@ -590,6 +616,7 @@ func (s *mcpServer) registerTools() error {
 
 	renameSymbolTool := mcp.NewTool("rename_symbol",
 		mcp.WithDescription("Rename a symbol (variable, function, class, etc.) at the specified position and update all references throughout the codebase."),
+		destructiveTool(),
 		mcp.WithString("filePath",
 			mcp.Required(),
 			mcp.Description("The path to the file containing the symbol to rename"),

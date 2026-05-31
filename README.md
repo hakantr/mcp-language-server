@@ -198,10 +198,11 @@ This is an [MCP](https://modelcontextprotocol.io/introduction) server that runs 
 - `document_symbols`: Lists the symbol tree for a file, including symbol kind, detail/signature metadata when provided by the language server, ranges, selection ranges, and tags.
 - `workspace_symbols`: Searches symbols across the workspace. Omit `query` or pass an empty string to request all workspace symbols from servers that support it; results are sorted deterministically and are not capped unless `limit` is set.
 - `signature_help`: Shows callable signatures at a precise location.
-- `completions`: Shows completion candidates at a precise location.
+- `completions`: Shows completion candidates at a precise location. Defaults to 50 candidates unless `limit` is set.
 - `inlay_hints`: Shows inlay hints for a line range.
 - `code_actions`: Lists code actions for a file range.
 - `diagnostics`: Provides diagnostic information for a specific file, including warnings and errors.
+- `get_codelens`: Lists read-only code lens hints for a file.
 - `hover`: Display documentation, type hints, or other hover information for a given location.
 - `rename_symbol`: Rename a symbol across a project.
 - `edit_file`: Allows making multiple text edits to a file based on line numbers. Provides a more reliable and context-economical way to edit files compared to search and replace based edit tools.
